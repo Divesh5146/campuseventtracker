@@ -3,8 +3,6 @@ import {
   AlarmClock,
   AlertTriangle,
   Calendar,
-  Check,
-  CheckSquare,
   LayoutDashboard,
   Lightbulb,
   LogOut,
@@ -47,13 +45,6 @@ interface CampusEventDashboardProps {
   onLogout: () => void;
 }
 
-interface TodoItem {
-  id: string;
-  text: string;
-  done: boolean;
-  roleTag: string;
-}
-
 export const CampusEventDashboard: React.FC<CampusEventDashboardProps> = ({
   member,
   canBroadcast,
@@ -68,8 +59,8 @@ export const CampusEventDashboard: React.FC<CampusEventDashboardProps> = ({
   // Top-left card tab: 'events' (default matching template) | 'schedule'
   const [leftTab, setLeftTab] = useState<'events' | 'schedule'>('events');
 
-  // Top-right toolbar active overlay drawer: null | 'todo' | 'manager' | 'map'
-  const [activeDrawer, setActiveDrawer] = useState<'todo' | 'manager' | 'map' | null>(null);
+  // Top-right toolbar active overlay drawer: null | 'manager' | 'map'
+  const [activeDrawer, setActiveDrawer] = useState<'manager' | 'map' | null>(null);
 
   // Selected featured event for header & progress tracker
   const [selectedEventTitle, setSelectedEventTitle] = useState<string>('Annual Sports Day 2026');
@@ -92,28 +83,6 @@ export const CampusEventDashboard: React.FC<CampusEventDashboardProps> = ({
   // Multi-turn Campus Guide & Navigation Assistant state
   const [isConciergeOpen, setIsConciergeOpen] = useState<boolean>(false);
 
-  // Interactive To-Do items
-  const [todos, setTodos] = useState<TodoItem[]>([
-    {
-      id: 'td-1',
-      text: 'Verify Track A lane assignments after 15m rain shift',
-      done: true,
-      roleTag: 'Track A',
-    },
-    {
-      id: 'td-2',
-      text: 'Gather Football Match 1 volunteers at Main Field gate',
-      done: false,
-      roleTag: 'Main Field',
-    },
-    {
-      id: 'td-3',
-      text: 'Submit medical waivers & cultural stage passes before 12:00 PM',
-      done: false,
-      roleTag: 'All Venues',
-    },
-  ]);
-
   const currentActivity =
     activities.find((a) => a.id === selectedActivityId) || activities[0];
 
@@ -129,9 +98,6 @@ export const CampusEventDashboard: React.FC<CampusEventDashboardProps> = ({
         break;
       case 'open_map':
         setActiveDrawer('map');
-        break;
-      case 'open_todo':
-        setActiveDrawer('todo');
         break;
       case 'open_manager':
         setActiveDrawer('manager');
@@ -248,58 +214,6 @@ export const CampusEventDashboard: React.FC<CampusEventDashboardProps> = ({
                 <p className="text-[#D1D5DB] mt-1">{v.addressOrGate}</p>
                 <p className="text-[#8E95A2] mt-0.5">{v.statusNote}</p>
               </div>
-            ))}
-          </div>
-        </section>
-      );
-    }
-
-    if (activeDrawer === 'todo') {
-      return (
-        <section
-          aria-label="Event To-Do Checklist"
-          className="bg-[#16181D] border border-[#38BDF8]/50 rounded-[20px] p-4 sm:p-5 shadow-lg"
-        >
-          <div className="flex items-center justify-between pb-3 border-b border-[#262A32]">
-            <h3 className="text-sm font-semibold text-white">
-              Event Day Coordination Checklist
-            </h3>
-            <button
-              type="button"
-              onClick={() => setActiveDrawer(null)}
-              className="min-h-[36px] px-2 text-xs text-[#9CA3AF] hover:text-white cursor-pointer"
-            >
-              Close
-            </button>
-          </div>
-          <div className="mt-3 space-y-2">
-            {todos.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() =>
-                  setTodos((prev) =>
-                    prev.map((t) =>
-                      t.id === item.id ? { ...t, done: !t.done } : t
-                    )
-                  )
-                }
-                className="w-full min-h-[44px] text-left p-3 rounded-xl bg-[#1D2028] hover:bg-[#242832] border border-[#2C313D] flex items-center justify-between gap-3 text-xs cursor-pointer"
-              >
-                <span
-                  className={`flex items-center gap-2.5 ${
-                    item.done ? 'line-through text-[#6B7280]' : 'text-[#E5E7EB]'
-                  }`}
-                >
-                  <Check
-                    className={`w-4 h-4 shrink-0 ${
-                      item.done ? 'text-[#38BDF8]' : 'text-transparent'
-                    }`}
-                  />
-                  <span>{item.text}</span>
-                </span>
-                <span className="text-[#9CA3AF] shrink-0">{item.roleTag}</span>
-              </button>
             ))}
           </div>
         </section>
@@ -574,21 +488,6 @@ export const CampusEventDashboard: React.FC<CampusEventDashboardProps> = ({
             <button
               type="button"
               onClick={() =>
-                setActiveDrawer((prev) => (prev === 'todo' ? null : 'todo'))
-              }
-              className={`h-10 inline-flex items-center gap-2 px-4 rounded-full border text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                activeDrawer === 'todo'
-                  ? 'bg-[#172536] border-[#38BDF8] text-[#4DA8FF]'
-                  : 'bg-[#23262E] hover:bg-[#2C303A] border-[#343944] text-[#D1D5DB]'
-              }`}
-            >
-              <CheckSquare className="w-4 h-4 text-[#9CA3AF]" />
-              <span>To-Do</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
                 setActiveDrawer((prev) => (prev === 'manager' ? null : 'manager'))
               }
               className={`h-10 inline-flex items-center gap-2 px-4 rounded-full border text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
@@ -838,7 +737,7 @@ export const CampusEventDashboard: React.FC<CampusEventDashboardProps> = ({
         aria-label="Mobile Quick Navigation"
         className="fixed bottom-0 left-0 right-0 z-40 lg:hidden bg-[#12151B]/95 backdrop-blur-md border-t border-[#262A32] px-2"
       >
-        <div className="grid grid-cols-4 items-center h-16 max-w-md mx-auto">
+        <div className="grid grid-cols-3 items-center h-16 max-w-md mx-auto">
           <button
             type="button"
             onClick={() => {
@@ -885,20 +784,6 @@ export const CampusEventDashboard: React.FC<CampusEventDashboardProps> = ({
           >
             <MapIcon className="w-5 h-5" />
             <span className="text-[10px] font-medium mt-1">Venues</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveDrawer((prev) => (prev === 'todo' ? null : 'todo'));
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            className={`min-h-[48px] flex flex-col items-center justify-center cursor-pointer ${
-              activeDrawer === 'todo' ? 'text-[#4DA8FF]' : 'text-[#9CA3AF]'
-            }`}
-          >
-            <CheckSquare className="w-5 h-5" />
-            <span className="text-[10px] font-medium mt-1">To-Do</span>
           </button>
         </div>
       </nav>

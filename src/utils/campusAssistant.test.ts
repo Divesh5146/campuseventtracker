@@ -4,7 +4,9 @@ import {
   buildCampusSystemInstruction,
   deriveNavigationActions,
   formatChatHistoryForGemini,
+  prepareTextForSpeech,
   resolveGeminiModelName,
+  resolveTtsVoiceName,
 } from './campusAssistant';
 import {
   DEMO_CAMPUS_MEMBERS,
@@ -15,6 +17,20 @@ import {
 test('resolveGeminiModelName selects gemini-3.8-flash for general and gemini-3.1-flash-lite for fast mode', () => {
   assert.equal(resolveGeminiModelName('general'), 'gemini-3.8-flash');
   assert.equal(resolveGeminiModelName('fast'), 'gemini-3.1-flash-lite');
+});
+
+test('resolveTtsVoiceName validates allowed prebuilt voices and defaults to Kore', () => {
+  assert.equal(resolveTtsVoiceName('Puck'), 'Puck');
+  assert.equal(resolveTtsVoiceName('Zephyr'), 'Zephyr');
+  assert.equal(resolveTtsVoiceName('InvalidVoice'), 'Kore');
+  assert.equal(resolveTtsVoiceName(undefined), 'Kore');
+});
+
+test('prepareTextForSpeech cleans markdown symbols and normalizes time ranges for natural TTS playback', () => {
+  const cleaned = prepareTextForSpeech(
+    '**100m Sprint Heats** • 08:00 AM ~ 09:30 AM ✓'
+  );
+  assert.equal(cleaned, '100m Sprint Heats , 08:00 AM to 09:30 AM checked');
 });
 
 test('formatChatHistoryForGemini filters empty messages and maps turns to Gemini Content format', () => {

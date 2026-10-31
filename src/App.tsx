@@ -156,8 +156,25 @@ export default function App() {
 
   if (!activeMember) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-[#0D0F12] text-slate-900 p-4 sm:p-6">
-        <div className="w-full max-w-md">
+      <main className="relative min-h-screen flex items-center justify-center bg-[#090B0E] text-[#E5E7EB] p-4 sm:p-6 overflow-hidden selection:bg-[#2997FF]/30 selection:text-white">
+        {/* Ambient architectural radial lighting */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 overflow-hidden"
+        >
+          <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[680px] h-[420px] rounded-full bg-[#2997FF]/12 blur-[130px]" />
+          <div className="absolute -bottom-40 left-1/3 w-[520px] h-[360px] rounded-full bg-indigo-500/8 blur-[120px]" />
+          <div
+            className="absolute inset-0 opacity-[0.035]"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.8) 1px, transparent 0)',
+              backgroundSize: '24px 24px',
+            }}
+          />
+        </div>
+
+        <div className="relative z-10 w-full max-w-[460px]">
           <IdLoginCard
             activeMember={null}
             onLoginSuccess={handleLoginSuccess}

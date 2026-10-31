@@ -147,6 +147,20 @@ export interface ChatApiResponse {
   error?: string;
 }
 
+export interface TranscribeVoiceResponse {
+  text?: string;
+  modelUsed?: string;
+  error?: string;
+}
+
+export interface SynthesizeSpeechResponse {
+  audioBase64?: string;
+  mimeType?: string;
+  voiceName?: string;
+  modelUsed?: string;
+  error?: string;
+}
+
 export async function sendChatMessage(params: {
   message: string;
   history: Array<{ role: 'user' | 'model'; text: string }>;
@@ -171,6 +185,48 @@ export async function sendChatMessage(params: {
   return data;
 }
 
+export async function transcribeVoiceAudio(params: {
+  audioBase64: string;
+  mimeType?: string;
+}): Promise<TranscribeVoiceResponse> {
+  const response = await fetch('/api/voice/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+
+  const data = (await response.json()) as TranscribeVoiceResponse;
+  if (!response.ok) {
+    return {
+      error:
+        data.error ||
+        `Voice transcription failed (${response.status}). Please check your API key in Settings > Secrets.`,
+    };
+  }
+  return data;
+}
+
+export async function synthesizeSpeech(params: {
+  text: string;
+  voiceName?: string;
+}): Promise<SynthesizeSpeechResponse> {
+  const response = await fetch('/api/voice/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+
+  const data = (await response.json()) as SynthesizeSpeechResponse;
+  if (!response.ok) {
+    return {
+      error:
+        data.error ||
+        `Speech synthesis failed (${response.status}). Please check your API key in Settings > Secrets.`,
+    };
+  }
+  return data;
+}
+
 export const apiClient = {
   login,
   getDashboardData,
@@ -178,4 +234,6 @@ export const apiClient = {
   publishActivity,
   broadcastAnnouncement,
   sendChatMessage,
+  transcribeVoiceAudio,
+  synthesizeSpeech,
 };

@@ -8,11 +8,43 @@ import {
 
 export type AssistantModelMode = 'general' | 'fast';
 
+export type AssistantVoiceName = 'Kore' | 'Puck' | 'Zephyr' | 'Charon' | 'Fenrir';
+
+const VALID_VOICE_NAMES: readonly AssistantVoiceName[] = [
+  'Kore',
+  'Puck',
+  'Zephyr',
+  'Charon',
+  'Fenrir',
+];
+
+export function resolveTtsVoiceName(voice?: string): AssistantVoiceName {
+  if (voice && (VALID_VOICE_NAMES as readonly string[]).includes(voice)) {
+    return voice as AssistantVoiceName;
+  }
+  return 'Kore';
+}
+
+export function prepareTextForSpeech(rawText: string): string {
+  const cleaned = rawText
+    .replace(/\*\*/g, '')
+    .replace(/[`#_>-]/g, ' ')
+    .replace(/\s*~\s*/g, ' to ')
+    .replace(/✓/g, 'checked')
+    .replace(/•/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (cleaned.length <= 750) {
+    return cleaned;
+  }
+  return `${cleaned.slice(0, 747).trim()}...`;
+}
+
 export type NavigationActionType =
   | 'open_schedule'
   | 'open_events'
   | 'open_map'
-  | 'open_todo'
   | 'open_manager'
   | 'open_broadcast'
   | 'focus_activity';
@@ -32,6 +64,8 @@ export interface ChatTurnMessage {
   timestamp: string;
   modelUsed?: string;
   navigationActions?: NavigationAction[];
+  audioBase64?: string;
+  isVoiceQuery?: boolean;
 }
 
 export function resolveGeminiModelName(mode: AssistantModelMode = 'general'): string {
@@ -140,22 +174,6 @@ export function deriveNavigationActions(
   }
 
   if (
-    q.includes('todo') ||
-    q.includes('to-do') ||
-    q.includes('checklist') ||
-    q.includes('waiver') ||
-    q.includes('task') ||
-    q.includes('volunteer')
-  ) {
-    addAction({
-      id: 'nav-todo',
-      type: 'open_todo',
-      label: 'Open To-Do Checklist',
-      description: 'Event day tasks, waivers, and volunteer coordination',
-    });
-  }
-
-  if (
     q.includes('switch') ||
     q.includes('program') ||
     q.includes('festival') ||
@@ -255,9 +273,9 @@ HOW TO NAVIGATE THE WEBSITE (ALDERBROOK COMMONS DASHBOARD):
 1. "Events" vs "Schedule" Switcher (Top-Left Card): Click "Schedule" to view all ${activities.length} sessions, see check-in codes, click a session to track its live progress, or click "Join Session" / "Registered ✓" to reserve or cancel your spot.
 2. "Announcement" Feed (Bottom-Left Card): Shows real-time alerts (such as the 15-minute rain delay on Running Track A and volunteer muster on Main Field). Organizers (Role: organization) can click "+ New Broadcast" to post alerts.
 3. Top-Right Toolbar (or Bottom Navigation Bar on mobile):
-   - "To-Do": Opens the Event Day Coordination Checklist (waivers before 12:00 PM, Track A lane check, Main Field volunteer muster).
    - "Event Manager": Switches the active featured program between "Annual Sports Day 2026" and "Autumn Cultural Fest 2026".
    - "Map": Opens the Cultural & Sports Venue Locations directory with gate numbers and status notes.
+   - "Campus Guide": Opens this multi-turn Event & Navigation Assistant.
 4. "Progress & Real-Time" Card (Right Column): Displays the 5-stage progress tracker (Preparation → Check-in → Heats Live → Results Feed → Finals Scheduled) for the selected event, plus the "Live Timeline (Gantt)" showing overlapping venue schedules (including the Track A rain-delay overlap between 08:45 AM and 11:05 AM).
 
 RESPONSE GUIDELINES:

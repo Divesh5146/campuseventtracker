@@ -28,7 +28,9 @@ import {
   buildCampusSystemInstruction,
   deriveNavigationActions,
   formatChatHistoryForGemini,
+  prepareTextForSpeech,
   resolveGeminiModelName,
+  resolveTtsVoiceName,
 } from './src/utils/campusAssistant.ts';
 
 const app = express();
@@ -38,7 +40,7 @@ const PORT =
   3001;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 
 // In-memory state persisted while the server runs
 let activities: CampusActivity[] = [...INITIAL_CAMPUS_ACTIVITIES];
@@ -303,6 +305,135 @@ app.post('/api/chat', async (req, res) => {
         canBroadcast
       ),
     });
+  }
+});
+
+// POST /api/voice/transcribe — Speech-to-Text via gemini-3.5-transcribe
+app.post('/api/voice/transcribe', async (req, res) => {
+  const { audioBase64 = '', mimeType = 'audio/webm' } = req.body as {
+    audioBase64?: string;
+    mimeType?: string;
+  };
+
+  const cleanedAudio = audioBase64.trim();
+  if (!cleanedAudio) {
+    res.status(400).json({ error: 'Audio recording payload is required.' });
+    return;
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-transcribe',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: mimeType || 'audio/webm',
+              data: cleanedAudio,
+            },
+          },
+          {
+            text: 'Transcribe this spoken question about university campus events or navigation accurately into plain text. Return only the transcribed words.',
+          },
+        ],
+      },
+    });
+
+    const transcript = (response.text ?? '').trim();
+    res.json({
+      text: transcript,
+      modelUsed: 'gemini-3.5-transcribe',
+    });
+  } catch (err: unknown) {
+    const errMessage =
+      err instanceof Error
+        ? err.message
+        : 'Unable to transcribe audio right now.';
+    res.status(500).json({ error: errMessage });
+  }
+});
+
+// POST /api/voice/tts — Text-to-Speech via gemini-3.8-flash-lite-tts
+app.post('/api/voice/tts', async (req, res) => {
+  const { text = '', voiceName = 'Kore' } = req.body as {
+    text?: string;
+    voiceName?: string;
+  };
+
+  const speechText = prepareTextForSpeech(text);
+  if (!speechText) {
+    res.status(400).json({ error: 'Text is required for speech synthesis.' });
+    return;
+  }
+
+  const resolvedVoice = resolveTtsVoiceName(voiceName);
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash-lite-tts',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: speechText,
+              speechMetadata: {
+                style: 'Warm, clear, helpful university campus concierge',
+              },
+            },
+          ],
+        },
+      ],
+      config: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: resolvedVoice },
+          },
+        },
+      },
+    });
+
+    const base64Audio =
+      response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+    if (!base64Audio) {
+      res.status(500).json({
+        error: 'No audio data returned from Gemini TTS model.',
+      });
+      return;
+    }
+
+    res.json({
+      audioBase64: base64Audio,
+      mimeType: 'audio/wav',
+      voiceName: resolvedVoice,
+      modelUsed: 'gemini-3.8-flash-lite-tts',
+    });
+  } catch (err: unknown) {
+    const errMessage =
+      err instanceof Error
+        ? err.message
+        : 'Unable to synthesize speech right now.';
+    res.status(500).json({ error: errMessage });
   }
 });
 

@@ -460,6 +460,26 @@ if (typeof window !== "undefined") {
 }
 
 // src/utils/campusAssistant.ts
+var VALID_VOICE_NAMES = [
+  "Kore",
+  "Puck",
+  "Zephyr",
+  "Charon",
+  "Fenrir"
+];
+function resolveTtsVoiceName(voice) {
+  if (voice && VALID_VOICE_NAMES.includes(voice)) {
+    return voice;
+  }
+  return "Kore";
+}
+function prepareTextForSpeech(rawText) {
+  const cleaned = rawText.replace(/\*\*/g, "").replace(/[`#_>-]/g, " ").replace(/\s*~\s*/g, " to ").replace(/✓/g, "checked").replace(/•/g, ", ").replace(/\s+/g, " ").trim();
+  if (cleaned.length <= 750) {
+    return cleaned;
+  }
+  return `${cleaned.slice(0, 747).trim()}...`;
+}
 function resolveGeminiModelName(mode = "general") {
   if (mode === "fast") {
     return "gemini-3.1-flash-lite";
@@ -513,14 +533,6 @@ function deriveNavigationActions(queryText, activities2, canBroadcast = false) {
       type: "open_map",
       label: "Open Venue Map",
       description: "Gates, building codes, and live venue status notes"
-    });
-  }
-  if (q.includes("todo") || q.includes("to-do") || q.includes("checklist") || q.includes("waiver") || q.includes("task") || q.includes("volunteer")) {
-    addAction({
-      id: "nav-todo",
-      type: "open_todo",
-      label: "Open To-Do Checklist",
-      description: "Event day tasks, waivers, and volunteer coordination"
     });
   }
   if (q.includes("switch") || q.includes("program") || q.includes("festival") || q.includes("manager") || q.includes("cultural fest") || q.includes("sports day")) {
@@ -585,9 +597,9 @@ HOW TO NAVIGATE THE WEBSITE (ALDERBROOK COMMONS DASHBOARD):
 1. "Events" vs "Schedule" Switcher (Top-Left Card): Click "Schedule" to view all ${activities2.length} sessions, see check-in codes, click a session to track its live progress, or click "Join Session" / "Registered \u2713" to reserve or cancel your spot.
 2. "Announcement" Feed (Bottom-Left Card): Shows real-time alerts (such as the 15-minute rain delay on Running Track A and volunteer muster on Main Field). Organizers (Role: organization) can click "+ New Broadcast" to post alerts.
 3. Top-Right Toolbar (or Bottom Navigation Bar on mobile):
-   - "To-Do": Opens the Event Day Coordination Checklist (waivers before 12:00 PM, Track A lane check, Main Field volunteer muster).
    - "Event Manager": Switches the active featured program between "Annual Sports Day 2026" and "Autumn Cultural Fest 2026".
    - "Map": Opens the Cultural & Sports Venue Locations directory with gate numbers and status notes.
+   - "Campus Guide": Opens this multi-turn Event & Navigation Assistant.
 4. "Progress & Real-Time" Card (Right Column): Displays the 5-stage progress tracker (Preparation \u2192 Check-in \u2192 Heats Live \u2192 Results Feed \u2192 Finals Scheduled) for the selected event, plus the "Live Timeline (Gantt)" showing overlapping venue schedules (including the Track A rain-delay overlap between 08:45 AM and 11:05 AM).
 
 RESPONSE GUIDELINES:
@@ -600,7 +612,7 @@ RESPONSE GUIDELINES:
 var app = express();
 var PORT = Number(process.env.BACKEND_PORT) || Number(process.env.PORT) || 3001;
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
 var activities = [...INITIAL_CAMPUS_ACTIVITIES];
 var announcements = [...INITIAL_ANNOUNCEMENTS];
 var reservations = {
@@ -801,6 +813,107 @@ app.post("/api/chat", async (req, res) => {
         canBroadcast
       )
     });
+  }
+});
+app.post("/api/voice/transcribe", async (req, res) => {
+  const { audioBase64 = "", mimeType = "audio/webm" } = req.body;
+  const cleanedAudio = audioBase64.trim();
+  if (!cleanedAudio) {
+    res.status(400).json({ error: "Audio recording payload is required." });
+    return;
+  }
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build"
+        }
+      }
+    });
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-transcribe",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: mimeType || "audio/webm",
+              data: cleanedAudio
+            }
+          },
+          {
+            text: "Transcribe this spoken question about university campus events or navigation accurately into plain text. Return only the transcribed words."
+          }
+        ]
+      }
+    });
+    const transcript = (response.text ?? "").trim();
+    res.json({
+      text: transcript,
+      modelUsed: "gemini-3.5-transcribe"
+    });
+  } catch (err) {
+    const errMessage = err instanceof Error ? err.message : "Unable to transcribe audio right now.";
+    res.status(500).json({ error: errMessage });
+  }
+});
+app.post("/api/voice/tts", async (req, res) => {
+  const { text = "", voiceName = "Kore" } = req.body;
+  const speechText = prepareTextForSpeech(text);
+  if (!speechText) {
+    res.status(400).json({ error: "Text is required for speech synthesis." });
+    return;
+  }
+  const resolvedVoice = resolveTtsVoiceName(voiceName);
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build"
+        }
+      }
+    });
+    const response = await ai.models.generateContent({
+      model: "gemini-3.8-flash-lite-tts",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: speechText,
+              speechMetadata: {
+                style: "Warm, clear, helpful university campus concierge"
+              }
+            }
+          ]
+        }
+      ],
+      config: {
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: resolvedVoice }
+          }
+        }
+      }
+    });
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Audio) {
+      res.status(500).json({
+        error: "No audio data returned from Gemini TTS model."
+      });
+      return;
+    }
+    res.json({
+      audioBase64: base64Audio,
+      mimeType: "audio/wav",
+      voiceName: resolvedVoice,
+      modelUsed: "gemini-3.8-flash-lite-tts"
+    });
+  } catch (err) {
+    const errMessage = err instanceof Error ? err.message : "Unable to synthesize speech right now.";
+    res.status(500).json({ error: errMessage });
   }
 });
 var distPath = path.resolve(process.cwd(), "dist");
