@@ -32,7 +32,10 @@ import {
 } from './src/utils/campusAssistant.ts';
 
 const app = express();
-const PORT = Number(process.env.BACKEND_PORT) || 3001;
+const PORT =
+  Number(process.env.BACKEND_PORT) ||
+  Number(process.env.PORT) ||
+  3001;
 
 app.use(cors());
 app.use(express.json());
@@ -316,31 +319,26 @@ if (fs.existsSync(distPath)) {
   });
 }
 
+let activePort = PORT;
 const server = http.createServer(app);
 
 server.on('listening', () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`Server is running on http://localhost:${activePort}`);
 });
 
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    console.log(`Server is running on http://localhost:${PORT}`);
+    if (activePort !== 3001 && !process.env.BACKEND_PORT) {
+      // In local preview containers where PORT=8080 is used by the proxy, fall back to 3001
+      activePort = 3001;
+      server.listen(activePort, '0.0.0.0');
+      return;
+    }
+    console.log(`Server is running on http://localhost:${activePort}`);
     process.exit(0);
   }
   console.error('Server error:', err);
   process.exit(1);
 });
 
-server.listen(PORT, '0.0.0.0');
-
-const cloudRunPort = Number(process.env.PORT);
-if (cloudRunPort && cloudRunPort !== PORT) {
-  const cloudServer = http.createServer(app);
-  cloudServer.on('listening', () => {
-    console.log(`Cloud Run server listening on port ${cloudRunPort}`);
-  });
-  cloudServer.on('error', () => {
-    // Port 8080 is used by the AI Studio preview proxy in dev; ignore safely.
-  });
-  cloudServer.listen(cloudRunPort, '0.0.0.0');
-}
+server.listen(activePort, '0.0.0.0');

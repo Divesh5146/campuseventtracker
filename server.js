@@ -598,7 +598,7 @@ RESPONSE GUIDELINES:
 
 // server.ts
 var app = express();
-var PORT = Number(process.env.BACKEND_PORT) || 3001;
+var PORT = Number(process.env.BACKEND_PORT) || Number(process.env.PORT) || 3001;
 app.use(cors());
 app.use(express.json());
 var activities = [...INITIAL_CAMPUS_ACTIVITIES];
@@ -814,26 +814,22 @@ if (fs.existsSync(distPath)) {
     res.sendFile(path.join(distPath, "index.html"));
   });
 }
+var activePort = PORT;
 var server = http.createServer(app);
 server.on("listening", () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`Server is running on http://localhost:${activePort}`);
 });
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
-    console.log(`Server is running on http://localhost:${PORT}`);
+    if (activePort !== 3001 && !process.env.BACKEND_PORT) {
+      activePort = 3001;
+      server.listen(activePort, "0.0.0.0");
+      return;
+    }
+    console.log(`Server is running on http://localhost:${activePort}`);
     process.exit(0);
   }
   console.error("Server error:", err);
   process.exit(1);
 });
-server.listen(PORT, "0.0.0.0");
-var cloudRunPort = Number(process.env.PORT);
-if (cloudRunPort && cloudRunPort !== PORT) {
-  const cloudServer = http.createServer(app);
-  cloudServer.on("listening", () => {
-    console.log(`Cloud Run server listening on port ${cloudRunPort}`);
-  });
-  cloudServer.on("error", () => {
-  });
-  cloudServer.listen(cloudRunPort, "0.0.0.0");
-}
+server.listen(activePort, "0.0.0.0");
