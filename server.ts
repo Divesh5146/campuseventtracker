@@ -1,0 +1,346 @@
+import express from 'express';
+import cors from 'cors';
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import {
+  GoogleGenAI,
+  type GenerateContentResponse,
+  ThinkingLevel,
+} from '@google/genai';
+import {
+  type CampusActivity,
+  type CampusAnnouncement,
+  type CampusMember,
+  type CampusRole,
+  DEMO_CAMPUS_MEMBERS,
+  INITIAL_ANNOUNCEMENTS,
+  INITIAL_CAMPUS_ACTIVITIES,
+} from './src/data/campusData.ts';
+import {
+  type BroadcastInput,
+  createAnnouncementBroadcast,
+  toggleActivityReservation,
+  validateCampusLogin,
+} from './src/utils/campusAuth.ts';
+import {
+  type AssistantModelMode,
+  buildCampusSystemInstruction,
+  deriveNavigationActions,
+  formatChatHistoryForGemini,
+  resolveGeminiModelName,
+} from './src/utils/campusAssistant.ts';
+
+const app = express();
+const PORT = Number(process.env.BACKEND_PORT) || 3001;
+
+app.use(cors());
+app.use(express.json());
+
+// In-memory state persisted while the server runs
+let activities: CampusActivity[] = [...INITIAL_CAMPUS_ACTIVITIES];
+let announcements: CampusAnnouncement[] = [...INITIAL_ANNOUNCEMENTS];
+let reservations: Record<string, string[]> = {
+  [DEMO_CAMPUS_MEMBERS[0].campusId]: [
+    ...DEMO_CAMPUS_MEMBERS[0].initialRegisteredActivityIds,
+  ],
+  [DEMO_CAMPUS_MEMBERS[1].campusId]: [
+    ...DEMO_CAMPUS_MEMBERS[1].initialRegisteredActivityIds,
+  ],
+};
+
+// POST /api/auth/login
+app.post('/api/auth/login', (req, res) => {
+  const { campusId = '', role = 'student' } = req.body as {
+    campusId?: string;
+    role?: CampusRole;
+  };
+
+  const validation = validateCampusLogin(campusId, role, DEMO_CAMPUS_MEMBERS);
+  if (!validation.valid || !validation.member) {
+    res.status(400).json({
+      valid: false,
+      error: validation.error || 'Invalid Campus ID credentials.',
+    });
+    return;
+  }
+
+  const member = validation.member;
+  if (!reservations[member.campusId]) {
+    reservations[member.campusId] = [...member.initialRegisteredActivityIds];
+  }
+
+  res.json({
+    valid: true,
+    member,
+    registeredIds: reservations[member.campusId],
+  });
+});
+
+// GET /api/dashboard
+app.get('/api/dashboard', (req, res) => {
+  const campusId = typeof req.query.campusId === 'string' ? req.query.campusId : '';
+  const roleParam = typeof req.query.role === 'string' ? req.query.role : '';
+
+  let activeMember: CampusMember | null = null;
+  if (campusId) {
+    activeMember =
+      DEMO_CAMPUS_MEMBERS.find((m) => m.campusId === campusId) || null;
+  } else if (roleParam === 'organizer') {
+    activeMember = DEMO_CAMPUS_MEMBERS[1];
+  } else if (roleParam === 'student') {
+    activeMember = DEMO_CAMPUS_MEMBERS[0];
+  }
+
+  const targetId = activeMember?.campusId || campusId;
+  const registeredIds =
+    targetId && reservations[targetId] ? reservations[targetId] : [];
+
+  res.json({
+    activities,
+    announcements,
+    registeredIds,
+    activeMember,
+  });
+});
+
+// POST /api/activities/:id/reserve
+app.post('/api/activities/:id/reserve', (req, res) => {
+  const activityId = req.params.id;
+  const { campusId = DEMO_CAMPUS_MEMBERS[0].campusId } = req.body as {
+    campusId?: string;
+  };
+
+  const currentRegistered = reservations[campusId] || [];
+  const update = toggleActivityReservation(
+    activities,
+    currentRegistered,
+    activityId
+  );
+
+  activities = update.activities;
+  reservations[campusId] = update.registeredIds;
+
+  res.json({
+    activities,
+    registeredIds: reservations[campusId],
+    action: update.action,
+    targetActivity: update.targetActivity,
+  });
+});
+
+// POST /api/activities
+app.post('/api/activities', (req, res) => {
+  const body = req.body as Partial<CampusActivity>;
+  if (!body || !body.title) {
+    res.status(400).json({ error: 'Activity title is required.' });
+    return;
+  }
+
+  const newActivity: CampusActivity = {
+    id: `evt-${Date.now()}`,
+    title: body.title,
+    category: body.category || 'Sports Events',
+    hostOrganization: body.hostOrganization || 'Campus Activity Board',
+    hostAdvisorOrLead: body.hostAdvisorOrLead || 'Prof. R. Sharma · ORG-2026-0310',
+    dayOfWeek: body.dayOfWeek || 'Thursday',
+    dateLabel: body.dateLabel || 'Oct 15, 2026',
+    timeRange: body.timeRange || '08:00 AM ~ 09:30 AM',
+    venueId: body.venueId || 'venue-track-a',
+    locationBuilding: body.locationBuilding || 'Running Track A',
+    roomNumber: body.roomNumber || 'Gate 2',
+    coCurricularHours: body.coCurricularHours ?? 2.0,
+    capacity: body.capacity ?? 120,
+    enrolledCount: body.enrolledCount ?? 0,
+    checkInCode: body.checkInCode || 'CAMP-26',
+    summary: body.summary || 'Scheduled campus event session.',
+    equipmentOrPrerequisites: body.equipmentOrPrerequisites || 'Campus ID required',
+    illustrationType: body.illustrationType || 'robotics',
+    activeStepIndex: body.activeStepIndex ?? 0,
+  };
+
+  activities = [newActivity, ...activities];
+  res.status(201).json({
+    activity: newActivity,
+    activities,
+  });
+});
+
+// POST /api/announcements
+app.post('/api/announcements', (req, res) => {
+  const { input, organizer } = req.body as {
+    input?: BroadcastInput;
+    organizer?: Pick<CampusMember, 'fullName' | 'campusId'>;
+  };
+
+  if (!input) {
+    res.status(400).json({
+      valid: false,
+      error: 'Announcement input payload is required.',
+    });
+    return;
+  }
+
+  const resolvedOrganizer = organizer || {
+    fullName: DEMO_CAMPUS_MEMBERS[1].fullName,
+    campusId: DEMO_CAMPUS_MEMBERS[1].campusId,
+  };
+
+  const result = createAnnouncementBroadcast(
+    announcements,
+    input,
+    resolvedOrganizer
+  );
+
+  if (!result.valid || !result.announcement) {
+    res.status(400).json({
+      valid: false,
+      error: result.error || 'Invalid announcement broadcast.',
+      announcements,
+    });
+    return;
+  }
+
+  announcements = result.updatedAnnouncements;
+
+  res.status(201).json({
+    valid: true,
+    announcement: result.announcement,
+    announcements,
+  });
+});
+
+// POST /api/chat — Multi-turn Gemini Campus Navigation & Event Concierge
+app.post('/api/chat', async (req, res) => {
+  const {
+    message = '',
+    history = [],
+    campusId = '',
+    mode = 'general',
+  } = req.body as {
+    message?: string;
+    history?: Array<{ role: 'user' | 'model'; text: string }>;
+    campusId?: string;
+    mode?: AssistantModelMode;
+  };
+
+  const trimmedMessage = message.trim();
+  if (!trimmedMessage) {
+    res.status(400).json({
+      error: 'Please enter a question about campus events, venues, or navigation.',
+    });
+    return;
+  }
+
+  const activeMember =
+    DEMO_CAMPUS_MEMBERS.find((m) => m.campusId === campusId) ||
+    DEMO_CAMPUS_MEMBERS[0];
+  const registeredIds = reservations[activeMember.campusId] || [];
+  const canBroadcast = activeMember.role === 'organization';
+  const modelName = resolveGeminiModelName(mode);
+
+  const systemInstruction = buildCampusSystemInstruction({
+    activities,
+    announcements,
+    member: activeMember,
+    registeredIds,
+  });
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const formattedHistory = formatChatHistoryForGemini(history);
+    const chat = ai.chats.create({
+      model: modelName,
+      history: formattedHistory,
+      config: {
+        systemInstruction,
+        ...(modelName === 'gemini-3.8-flash'
+          ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+          : {}),
+      },
+    });
+
+    const response: GenerateContentResponse = await chat.sendMessage({
+      message: trimmedMessage,
+    });
+
+    const replyText =
+      (response.text ?? '').trim() ||
+      'I can help you navigate the Schedule, Venue Map, Event Manager, or To-Do Checklist.';
+
+    const navigationActions = deriveNavigationActions(
+      `${trimmedMessage} ${replyText}`,
+      activities,
+      canBroadcast
+    );
+
+    res.json({
+      reply: replyText,
+      modelUsed: modelName,
+      navigationActions,
+    });
+  } catch (err: unknown) {
+    const errMessage =
+      err instanceof Error
+        ? err.message
+        : 'Unable to reach the Gemini Campus Assistant right now.';
+    res.status(500).json({
+      error: errMessage,
+      navigationActions: deriveNavigationActions(
+        trimmedMessage,
+        activities,
+        canBroadcast
+      ),
+    });
+  }
+});
+
+// Serve static production build when dist/ exists (for Cloud Run deployment)
+const distPath = path.resolve(process.cwd(), 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api')) {
+      next();
+      return;
+    }
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
+const server = http.createServer(app);
+
+server.on('listening', () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log(`Server is running on http://localhost:${PORT}`);
+    process.exit(0);
+  }
+  console.error('Server error:', err);
+  process.exit(1);
+});
+
+server.listen(PORT, '0.0.0.0');
+
+const cloudRunPort = Number(process.env.PORT);
+if (cloudRunPort && cloudRunPort !== PORT) {
+  const cloudServer = http.createServer(app);
+  cloudServer.on('listening', () => {
+    console.log(`Cloud Run server listening on port ${cloudRunPort}`);
+  });
+  cloudServer.on('error', () => {
+    // Port 8080 is used by the AI Studio preview proxy in dev; ignore safely.
+  });
+  cloudServer.listen(cloudRunPort, '0.0.0.0');
+}

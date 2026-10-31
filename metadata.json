@@ -1,0 +1,6 @@
+{
+  "name": "Alderbrook Commons — Campus Activity Platform",
+  "description": "University campus activity discovery, co-curricular credit tracking, and student organization portal with Campus ID number authentication.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

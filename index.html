@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      (function () {
+        try {
+          var nativeDefineProperty = Object.defineProperty;
+          var nativeReflectDefineProperty =
+            typeof Reflect !== 'undefined' && Reflect.defineProperty
+              ? Reflect.defineProperty
+              : null;
+
+          function makeFetchMutable(target) {
+            if (!target) return;
+            var desc = Object.getOwnPropertyDescriptor(target, 'fetch');
+            if (!desc) return;
+            if (desc.configurable === false) return;
+            var currentFetch = desc.get
+              ? desc.get.call(window)
+              : typeof desc.value === 'function'
+                ? desc.value
+                : window.fetch;
+            nativeDefineProperty.call(Object, target, 'fetch', {
+              configurable: true,
+              enumerable: desc.enumerable !== false,
+              get: function () {
+                return currentFetch;
+              },
+              set: function (nextFetch) {
+                if (typeof nextFetch === 'function') {
+                  currentFetch = nextFetch;
+                }
+              },
+            });
+          }
+
+          makeFetchMutable(
+            typeof Window !== 'undefined' ? Window.prototype : null
+          );
+          makeFetchMutable(window);
+
+          function patchFetchDescriptor(attributes) {
+            if (!attributes || typeof attributes !== 'object') return attributes;
+            if (attributes.get && !attributes.set) {
+              var latestGetter = attributes.get;
+              return {
+                configurable: true,
+                enumerable: attributes.enumerable !== false,
+                get: function () {
+                  return latestGetter.call(this);
+                },
+                set: function (nextFn) {
+                  if (typeof nextFn === 'function') {
+                    latestGetter = function () {
+                      return nextFn;
+                    };
+                  }
+                },
+              };
+            }
+            if ('value' in attributes && attributes.writable === false) {
+              return {
+                configurable: true,
+                enumerable: attributes.enumerable !== false,
+                writable: true,
+                value: attributes.value,
+              };
+            }
+            return attributes;
+          }
+
+          Object.defineProperty = function (obj, prop, attributes) {
+            if (
+              prop === 'fetch' &&
+              (obj === window ||
+                obj === globalThis ||
+                (typeof Window !== 'undefined' && obj === Window.prototype))
+            ) {
+              return nativeDefineProperty.call(
+                Object,
+                obj,
+                prop,
+                patchFetchDescriptor(attributes)
+              );
+            }
+            return nativeDefineProperty.call(Object, obj, prop, attributes);
+          };
+
+          if (nativeReflectDefineProperty) {
+            Reflect.defineProperty = function (target, propertyKey, attributes) {
+              if (
+                propertyKey === 'fetch' &&
+                (target === window ||
+                  target === globalThis ||
+                  (typeof Window !== 'undefined' && target === Window.prototype))
+              ) {
+                return nativeReflectDefineProperty.call(
+                  Reflect,
+                  target,
+                  propertyKey,
+                  patchFetchDescriptor(attributes)
+                );
+              }
+              return nativeReflectDefineProperty.call(
+                Reflect,
+                target,
+                propertyKey,
+                attributes
+              );
+            };
+          }
+
+          window.addEventListener(
+            'error',
+            function (event) {
+              var msg = event && event.message ? String(event.message) : '';
+              var file = event && event.filename ? String(event.filename) : '';
+              if (
+                msg.indexOf('Cannot set property fetch') !== -1 ||
+                file.indexOf('chrome-extension://') === 0
+              ) {
+                event.stopImmediatePropagation();
+                event.preventDefault();
+                return false;
+              }
+            },
+            true
+          );
+        } catch (_) {}
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alderbrook Commons — Campus Activity Platform</title>
+    <meta name="description" content="University campus activity discovery, co-curricular credit tracking, and student organization portal with Campus ID number authentication." />
+    <meta property="og:title" content="Alderbrook Commons — Campus Activity Platform" />
+    <meta property="og:description" content="University campus activity discovery, co-curricular credit tracking, and student organization portal with Campus ID number authentication." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
